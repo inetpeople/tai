@@ -1,8 +1,10 @@
 defmodule Tai.Venues.AssetBalance do
+  alias __MODULE__
+
   @type venue_id :: Tai.Venues.Adapter.venue_id()
   @type account_id :: Tai.Venues.Adapter.account_id()
   @type asset :: atom
-  @type t :: %Tai.Venues.AssetBalance{
+  @type t :: %AssetBalance{
           venue_id: venue_id,
           account_id: account_id,
           asset: asset,
@@ -25,8 +27,13 @@ defmodule Tai.Venues.AssetBalance do
     locked
   )a
 
-  @spec total(balance :: t) :: Decimal.t()
-  def total(%Tai.Venues.AssetBalance{free: free, locked: locked}) do
-    Decimal.add(free, locked)
-  end
+  @spec total(t) :: Decimal.t()
+  def total(b), do: Decimal.add(b.free, b.locked)
+end
+
+defimpl Stored.Item, for: Tai.Venues.AssetBalance do
+  @type asset_balance :: Tai.Venues.AssetBalance.t()
+
+  @spec key(asset_balance) :: String.t()
+  def key(b), do: {b.venue_id, b.account_id, b.asset}
 end

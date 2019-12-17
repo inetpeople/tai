@@ -1,6 +1,7 @@
 defmodule Tai.Venues.AssetBalanceStore do
   alias Tai.Venues.AssetBalanceStore
-  use GenServer
+  # use GenServer
+  use Stored.Store
 
   @type venue_id :: Tai.Venues.Adapter.venue_id()
   @type account_id :: Tai.Venues.Adapter.account_id()
@@ -15,37 +16,38 @@ defmodule Tai.Venues.AssetBalanceStore do
   @type unlock_result :: :ok | {:error, :insufficient_balance | term}
   @type modify_result :: {:ok, asset_balance} | {:error, :not_found | :value_must_be_positive}
 
-  def start_link(_) do
-    {:ok, pid} = GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-    GenServer.call(pid, :create_ets_table)
-    {:ok, pid}
-  end
+  # def start_link(_) do
+  #   {:ok, pid} = GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  #   GenServer.call(pid, :create_ets_table)
+  #   {:ok, pid}
+  # end
 
-  def init(state), do: {:ok, state}
+  # def init(state), do: {:ok, state}
 
-  def handle_call(:create_ets_table, _from, state) do
-    create_ets_table()
-    {:reply, :ok, state}
-  end
+  # def handle_call(:create_ets_table, _from, state) do
+  #   create_ets_table()
+  #   {:reply, :ok, state}
+  # end
 
-  def handle_call({:upsert, balance}, _from, state) do
-    upsert_ets_table(balance)
+  # def handle_call({:upsert, balance}, _from, state) do
+  #   upsert_ets_table(balance)
 
-    Tai.Events.info(%Tai.Events.UpsertAssetBalance{
-      venue_id: balance.venue_id,
-      account_id: balance.account_id,
-      asset: balance.asset,
-      free: balance.free,
-      locked: balance.locked
-    })
+  #   Tai.Events.info(%Tai.Events.UpsertAssetBalance{
+  #     venue_id: balance.venue_id,
+  #     account_id: balance.account_id,
+  #     asset: balance.asset,
+  #     free: balance.free,
+  #     locked: balance.locked
+  #   })
 
-    {:reply, :ok, state}
-  end
+  #   {:reply, :ok, state}
+  # end
 
   def handle_call({:lock, lock_request}, _from, state) do
     with {:ok, {with_locked_balance, locked_qty}} <-
            AssetBalanceStore.Lock.from_request(lock_request) do
-      upsert_ets_table(with_locked_balance)
+      # upsert_ets_table(with_locked_balance)
+      state.backend.upsert(with_locked_balance, state.name)
 
       Tai.Events.info(%Tai.Events.LockAssetBalanceOk{
         venue_id: lock_request.venue_id,
@@ -77,7 +79,8 @@ defmodule Tai.Venues.AssetBalanceStore do
 
   def handle_call({:unlock, unlock_request}, _from, state) do
     with {:ok, with_unlocked_balance} <- AssetBalanceStore.Unlock.from_request(unlock_request) do
-      upsert_ets_table(with_unlocked_balance)
+      # upsert_ets_table(with_unlocked_balance)
+      state.backend.upsert(with_unlocked_balance, state.name)
 
       Tai.Events.info(%Tai.Events.UnlockAssetBalanceOk{
         venue_id: unlock_request.venue_id,
@@ -110,7 +113,8 @@ defmodule Tai.Venues.AssetBalanceStore do
         {:ok, balance} ->
           new_free = Decimal.add(balance.free, val)
           new_balance = Map.put(balance, :free, new_free)
-          upsert_ets_table(new_balance)
+          # upsert_ets_table(new_balance)
+          state.backend.upsert(new_balance, state.name)
           continue = {:add, venue_id, account_id, asset, val, new_balance}
 
           {:reply, {:ok, new_balance}, state, {:continue, continue}}
@@ -133,7 +137,8 @@ defmodule Tai.Venues.AssetBalanceStore do
             {:reply, {:error, :result_less_then_zero}, state}
           else
             new_balance = Map.put(balance, :free, new_free)
-            upsert_ets_table(new_balance)
+            # upsert_ets_table(new_balance)
+            state.backend.upsert(new_balance, state.name)
             continue = {:sub, venue_id, account_id, asset, val, new_balance}
 
             {:reply, {:ok, new_balance}, state, {:continue, continue}}
@@ -183,10 +188,10 @@ defmodule Tai.Venues.AssetBalanceStore do
     GenServer.call(__MODULE__, {:unlock, unlock_request})
   end
 
-  @spec upsert(asset_balance) :: :ok
-  def upsert(balance) do
-    GenServer.call(__MODULE__, {:upsert, balance})
-  end
+  # @spec upsert(asset_balance) :: :ok
+  # def upsert(balance) do
+  #   GenServer.call(__MODULE__, {:upsert, balance})
+  # end
 
   @spec add(venue_id, account_id, asset, val :: number | String.t() | Decimal.t()) ::
           modify_result
@@ -216,15 +221,15 @@ defmodule Tai.Venues.AssetBalanceStore do
     sub(venue_id, account_id, asset, Decimal.cast(val))
   end
 
-  @spec all :: [asset_balance]
-  def all() do
-    __MODULE__
-    |> :ets.select([{{:_, :_}, [], [:"$_"]}])
-    |> Enum.reduce(
-      [],
-      fn {_, balance}, acc -> [balance | acc] end
-    )
-  end
+  # @spec all :: [asset_balance]
+  # def all() do
+  #   __MODULE__
+  #   |> :ets.select([{{:_, :_}, [], [:"$_"]}])
+  #   |> Enum.reduce(
+  #     [],
+  #     fn {_, balance}, acc -> [balance | acc] end
+  #   )
+  # end
 
   @spec where(filters :: [...]) :: [asset_balance]
   def where(filters) do
@@ -270,12 +275,12 @@ defmodule Tai.Venues.AssetBalanceStore do
     end
   end
 
-  defp upsert_ets_table(balance) do
-    record = {{balance.venue_id, balance.account_id, balance.asset}, balance}
-    :ets.insert(__MODULE__, record)
-  end
+  # defp upsert_ets_table(balance) do
+  #   record = {{balance.venue_id, balance.account_id, balance.asset}, balance}
+  #   :ets.insert(__MODULE__, record)
+  # end
 
-  defp create_ets_table do
-    :ets.new(__MODULE__, [:set, :protected, :named_table])
-  end
+  # defp create_ets_table do
+  #   :ets.new(__MODULE__, [:set, :protected, :named_table])
+  # end
 end
